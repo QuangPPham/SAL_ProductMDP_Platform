@@ -112,10 +112,6 @@ class MDP():
         if discount is not None:
             self.gamma = float(discount)
             assert 0.0 < self.gamma <= 1.0, "Discount must be in (0, 1]"
-
-            if self.gamma == 1:
-                print("WARNING: check conditions of convergence. With no "
-                      "discount, convergence can not be assumed.")
         
         # Maximum iterations
         if max_iter is not None:
@@ -143,8 +139,9 @@ class MDP():
         # User-implemented
         self.V = None            # (S,) vector containing V(s)
         self.Q = None            # (A, S) matrix containing Q(s, a)
-        self.policy = None       # (S,) vector containing deterministic action indices or
-                                 # (S, A) array contraining probability of action a at state s
+        self.policy = np.random.randint(self.A, size=self.S)
+                                # (S,) vector containing deterministic action indices or
+                                # (S, A) array contraining probability of action a at state s
 
     def Bellman_update(self, Vprev, GS=True):
         """
@@ -160,23 +157,27 @@ class MDP():
         Q = np.empty((self.A, self.S))
 
         if GS:
+            V = Vprev.copy()
+            policy = np.empty_like(Vprev)
             for s in range(self.S):
                 for a in range(self.A):
-                    Q[a, s] = self.R[a][s] + self.gamma * self.P[a][s, :].dot(Vprev)
+                    Q[a, s] = self.R[a][s] + self.gamma * self.P[a][s, :].dot(V)
+                V[s] = Q[:,s].max()
+                policy[s] = Q[:, s].argmax()
         else:
             for a in range(self.A):
                 Q[a] = self.R[a] + self.gamma * self.P[a].dot(Vprev)
-            
-        V = Q.max(axis=0)
-        policy = Q.argmax(axis=0)
+
+            V = Q.max(axis=0)
+            policy = Q.argmax(axis=0)
 
         return V, Q, policy
     
-    def value_iteration(self):
+    def value_iteration(self, GS=True):
         V = np.zeros(self.S)
         for i in range(self.max_iter):
             Vprev = V.copy() # numpy array thing
-            V, Q, policy = self.Bellman_update(Vprev)
+            V, Q, policy = self.Bellman_update(Vprev, GS)
             delta = np.max(abs(V - Vprev))
 
             if delta < self.epsilon:
@@ -236,6 +237,67 @@ class MDP():
 
         return V_pi, Q_pi
 
+    def policy_evaluation_iterative(self, policy, max_iter = 1000, GS=True):
+        """
+        Iteratively evaluate the value function for a given policy.
+        policy: array of shape (SX,) for deterministic, or (SX, A) for stochastic
+        Returns: V_pi (value function under policy)
+        """
+
+        V = np.zeros(self.S)
+        for _ in range(max_iter):
+            V_prev = V.copy()
+            if policy.ndim == 1:  # deterministic
+                for s in range(self.S):
+                    a = int(policy[s])
+                    if GS:
+                        V[s] = self.R[a][s] + self.gamma * self.P[a][s, :].dot(V)
+                    else:
+                        V[s] = self.R[a][s] + self.gamma * self.P[a][s, :].dot(V_prev)
+            elif policy.ndim == 2:  # stochastic
+                for s in range(self.S):
+                    for a in range(self.A):
+                        if GS:
+                            V[s] += policy[s, a] * (self.R[a][s] + self.gamma * self.P[a][s, :].dot(V))
+                        else:
+                            V[s] += policy[s, a] * (self.R[a][s] + self.gamma * self.P[a][s, :].dot(V_prev))
+            else:
+                raise ValueError("Policy must be 1D (deterministic) or 2D (stochastic)")
+            
+            if np.max(np.abs(V - V_prev)) < self.epsilon:
+                break
+
+        return V
+    
+    def policy_improvement(self, V):
+        """
+        Given a value function V, improve the policy greedily.
+        Returns a deterministic policy as a (SX,) array.
+        """
+
+        q_values = np.empty((self.A, self.S))
+        for a in range(self.A):
+            q_values[a] = self.R[a] + self.gamma * self.P[a].dot(V)
+        policy = q_values.argmax(axis=0)
+   
+        return policy
+    
+    def policy_iteration(self, iterative = True, GS = True):
+        V = np.zeros(self.S)
+        policy = np.zeros_like(V)
+        for i in range(self.max_iter):
+            if iterative:
+                V = self.policy_evaluation_iterative(policy)
+            else:
+                V, _ = self.eval(policy)
+            old_policy = policy.copy()
+            policy = self.policy_improvement(V)
+
+            if np.array_equal(policy, old_policy):
+                break
+        
+        return V, policy.astype(np.int32)
+
     def get_action(self, s, policy=None):
         """
         Returns an action for state s according to the given policy.
@@ -270,7 +332,7 @@ class MDP():
 
         for i in range(depth):
             if self.P is not None:
-                probs = self.P[a_batch[i], s_batch[i], :] # get distribution over s' given s and a
+                probs = self.P[a_batch[i]][s_batch[i], :] # get distribution over s' given s and a
                 s_new = np.random.choice(self.S, p=probs)
                 a_new = self.get_action(s_new, policy)
                 r_new = self.R[a_new][s_new]
