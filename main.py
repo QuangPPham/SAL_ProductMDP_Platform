@@ -204,7 +204,7 @@ print(policy_PI_after_A)
 Q-Learning
 """
 print("====================Q Learning=====================")
-ql1 = QLearning(env1, timesteps=100, exploration=0.1, iteration=500000)
+ql1 = QLearning(env1, learning_rate=0.5, timesteps=20, exploration=0.05, iteration=5000000)
 V1_QL, policy1_QL = ql1.run()
 
 V_QL_before_A = V1_QL[states_idx_before_A].reshape((ROW, COL))

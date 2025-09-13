@@ -5,7 +5,12 @@ class QLearning:
         self.gamma = env.gamma
         self.alpha = learning_rate
         self.epsilon = exploration
-        self.T = timesteps
+
+        if env.T is not None:
+            self.T = env.T
+        else:
+            self.T = timesteps
+
         try:
             self.S = env.SX
         except AttributeError:
@@ -34,7 +39,7 @@ class QLearning:
 
         try:
             _, _, s, r, truncated = self.mdp_sim(sx=s, a=a)
-        except ValueError:
+        except:
             s, r, truncated = self.mdp_sim(s=s, a=a)
 
         return s, a, r, truncated

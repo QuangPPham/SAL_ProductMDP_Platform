@@ -104,10 +104,7 @@ def _computeRewards(transition, reward, S, A):
             return tuple([r for a in range(A)])
 
 class MDP():
-    def __init__(self, s0 = 0, transitions=None, sample_model=None, rewards=None, discount=1.0, epsilon=1e-6, max_iter=10000):
-        # Initial state
-        self.s0 = s0
-
+    def __init__(self, transitions=None, sample_model=None, rewards=None, horizon=None, discount=1.0, epsilon=1e-6, max_iter=10000):
         # Discount factor
         if discount is not None:
             self.gamma = float(discount)
@@ -143,6 +140,9 @@ class MDP():
                                 # (S,) vector containing deterministic action indices or
                                 # (S, A) array contraining probability of action a at state s
 
+        if horizon is not None:
+            self.T = horizon
+
     def Bellman_update(self, Vprev, GS=True):
         """
         One step of the value iteration update using either Jacobi or Gauss-Seidel method.
@@ -174,11 +174,36 @@ class MDP():
         return V, Q, policy
     
     def value_iteration(self, GS=True):
-        V = np.zeros(self.S)
+        """
+        Perform value iteration. Returns value function, action-value function,
+        and greedy policy. For finite-horizon, returns a list of V, Q, and policies
+        for each timestep, where V[t], Q[t], and policy[t] is for timestep t.
+        """
+
+        if self.T is not None:
+            V = [np.zeros(self.S) for t in range(self.T+1)]
+            Q = [np.empty((self.A, self.S)) for t in range(self.T)]
+            policy = [np.empty(self.S) for t in range(self.T)]
+            delta_list = np.array([0 for t in range(self.T)])
+        else:
+            V = np.zeros(self.S)
+
         for i in range(self.max_iter):
-            Vprev = V.copy() # numpy array thing
-            V, Q, policy = self.Bellman_update(Vprev, GS)
-            delta = np.max(abs(V - Vprev))
+            # --- For finite-horizon --- #
+            if self.T is not None:
+                V_prev = [V[t].copy() for t in range(self.T)]
+
+                for t in reversed(range(self.T)):
+                    V[t], Q[t], policy[t] = self.Bellman_update(V[t+1].copy(), GS=False) # update V[t] from V[t+1]
+                    delta_list[t] = np.max(abs(V[t] - V_prev[t]))
+
+                delta = delta_list.max()
+
+            # --- For infinite-horizon --- #
+            else:
+                Vprev = V.copy() # numpy array thing
+                V, Q, policy = self.Bellman_update(Vprev, GS)
+                delta = np.max(abs(V - Vprev))
 
             if delta < self.epsilon:
                 break
@@ -191,8 +216,8 @@ class MDP():
         assuming actions are selected according to the policy. Policy has shape (S,)
         if deterministic, and (S,A) if stochastic.
         """
-        if policy is None:
-            policy = self.policy
+
+        assert policy is not None, "A policy must be passed in"
         
         P_pi = np.empty((self.S, self.S))
         R_pi = np.empty(self.S) # R(s') given s' from s,a
@@ -223,11 +248,11 @@ class MDP():
         """
         Evaluate value function of a given policy
         Using analytical approach
+        V = PR + gPV  => (I-gP)V = PR  => V = inv(I-gP)*PR
         """
-        if policy is None:
-            return self.V
         
-        # V = PR + gPV  => (I-gP)V = PR  => V = inv(I-gP)*PR
+        assert policy is not None, "A policy must be passed in"
+        
         P_pi, R_pi = self.computePR_policy(policy)
         V_pi = np.linalg.solve((np.eye(self.S) - self.gamma*P_pi), R_pi)
 
@@ -237,19 +262,21 @@ class MDP():
 
         return V_pi, Q_pi
 
-    def policy_evaluation_iterative(self, policy, max_iter = 1000, GS=True):
+    def policy_evaluation_iterative(self, policy, max_iter = 1000, GS=True, V_next=None):
         """
         Iteratively evaluate the value function for a given policy.
         policy: array of shape (SX,) for deterministic, or (SX, A) for stochastic
         Returns: V_pi (value function under policy)
         """
 
-        V = np.zeros(self.S)
+        # If V_next is passed, then it's for finite horizon
+        V = np.zeros(self.S) if V_next is None else V_next
+
         for _ in range(max_iter):
             V_prev = V.copy()
             if policy.ndim == 1:  # deterministic
                 for s in range(self.S):
-                    a = int(policy[s])
+                    a = policy[s]
                     if GS:
                         V[s] = self.R[a][s] + self.gamma * self.P[a][s, :].dot(V)
                     else:
@@ -280,23 +307,60 @@ class MDP():
             q_values[a] = self.R[a] + self.gamma * self.P[a].dot(V)
         policy = q_values.argmax(axis=0)
    
-        return policy
+        return policy.astype(np.int32)
     
     def policy_iteration(self, iterative = True, GS = True):
-        V = np.zeros(self.S)
-        policy = np.zeros_like(V)
-        for i in range(self.max_iter):
-            if iterative:
-                V = self.policy_evaluation_iterative(policy)
-            else:
-                V, _ = self.eval(policy)
-            old_policy = policy.copy()
-            policy = self.policy_improvement(V)
+        """
+        Perform policy iteration. Returns value function, action-value function,
+        and greedy policy. For finite-horizon, returns a list of V and policies
+        for each timestep, where V[t] and policy[t] is for timestep t.
 
-            if np.array_equal(policy, old_policy):
-                break
+        iterative: if true, perform evaluation iteratively, else do it analytically (only for finite horizon)
+        GS: if true, do Gauss-Seidel method, else do Jacobi (only for infinite horizon)
+        """
+        if self.T is not None:
+            V = [np.zeros(self.S) for t in range(self.T+1)]
+            policy = [np.zeros(self.S, dtype=np.int32) for t in range(self.T)]
+        else:
+            V = np.empty(self.S)
+            policy = np.zeros_like(V, dtype=np.int32)
+
+        for i in range(self.max_iter):
+            # --- For finite-horizon --- #
+            if self.T is not None:
+                # Policy Evaluation <- for all timesteps first
+                for t in reversed(range(self.T)):
+                    # Update V[t] from policy[t] and V[t+1]
+                    V[t] = self.policy_evaluation_iterative(policy[t], max_iter=1, GS=False, V_next=V[t+1].copy()) # only need 1 iteration
+
+                # Policy Improvement <- from complete set of value functions
+                stable = True
+                for t in range(self.T):
+                    old_policy = policy[t].copy()
+                    policy[t] = self.policy_improvement(V[t+1])
+
+                    if not np.array_equal(old_policy, policy[t]):
+                        stable = False
+
+                if stable:
+                    break
+
+            # --- For infinite-horizon ---
+            else:
+                # Policy evaluation
+                if iterative:
+                    V = self.policy_evaluation_iterative(policy, GS)
+                else:
+                    V, _ = self.eval(policy)
+
+                # Policy Improvement
+                old_policy = policy.copy()
+                policy = self.policy_improvement(V)
+
+                if np.array_equal(policy, old_policy):
+                    break
         
-        return V, policy.astype(np.int32)
+        return V, policy
 
     def get_action(self, s, policy=None):
         """
@@ -349,4 +413,5 @@ class MDP():
     def sample(self, s, a):
         # Sample next state and reward
         s_list, a_list, r_list = self.rollout(s, a, depth=1)
-        return s_list[-1], r_list[-1]
+        truncated = False
+        return s_list[-1], r_list[-1], truncated

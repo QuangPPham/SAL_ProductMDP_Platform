@@ -43,9 +43,6 @@ class ProductMDP():
         if labels is not None:
             self.labels = labels
 
-        # Initial state of the product MDP
-        self.state0 = (mdp.s0, automaton.states.index(automaton.q0))
-
         # final states
         self.acc = []
         self.sink = []
