@@ -140,8 +140,7 @@ class MDP():
                                 # (S,) vector containing deterministic action indices or
                                 # (S, A) array contraining probability of action a at state s
 
-        if horizon is not None:
-            self.T = horizon
+        self.T = horizon
 
     def Bellman_update(self, Vprev, GS=True):
         """

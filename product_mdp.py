@@ -9,6 +9,7 @@ class ProductMDP():
     def __init__(self, automaton, mdp, rewards=None, labels=None, discount=None, max_iter=None, epsilon=None):
         self.automaton = automaton
         self.mdp = mdp
+        self.T = mdp.T
 
         if discount is None:
             self.gamma = mdp.gamma
