@@ -179,34 +179,26 @@ class MDP():
         for each timestep, where V[t], Q[t], and policy[t] is for timestep t.
         """
 
+        # --- For finite-horizon --- #
         if self.T is not None:
             V = [np.zeros(self.S) for t in range(self.T+1)]
             Q = [np.empty((self.A, self.S)) for t in range(self.T)]
             policy = [np.empty(self.S) for t in range(self.T)]
-            delta_list = np.array([0 for t in range(self.T)])
+
+            for t in reversed(range(self.T)):
+                    V[t], Q[t], policy[t] = self.Bellman_update(V[t+1].copy(), GS=False) # update V[t] from V[t+1]
+
+        # --- For infinite-horizon --- #
         else:
             V = np.zeros(self.S)
-
-        for i in range(self.max_iter):
-            # --- For finite-horizon --- #
-            if self.T is not None:
-                V_prev = [V[t].copy() for t in range(self.T)]
-
-                for t in reversed(range(self.T)):
-                    V[t], Q[t], policy[t] = self.Bellman_update(V[t+1].copy(), GS=False) # update V[t] from V[t+1]
-                    delta_list[t] = np.max(abs(V[t] - V_prev[t]))
-
-                delta = delta_list.max()
-
-            # --- For infinite-horizon --- #
-            else:
+            for i in range(self.max_iter):
                 Vprev = V.copy() # numpy array thing
                 V, Q, policy = self.Bellman_update(Vprev, GS)
                 delta = np.max(abs(V - Vprev))
 
-            if delta < self.epsilon:
-                break
-        
+                if delta < self.epsilon:
+                    break
+            
         return V, Q, policy
 
     def computePR_policy(self, policy=None):
@@ -261,7 +253,7 @@ class MDP():
 
         return V_pi, Q_pi
 
-    def policy_evaluation_iterative(self, policy, max_iter = 1000, GS=True, V_next=None):
+    def policy_evaluation_iterative(self, policy, GS=True, max_iter = None, V_next=None):
         """
         Iteratively evaluate the value function for a given policy.
         policy: array of shape (SX,) for deterministic, or (SX, A) for stochastic
@@ -270,6 +262,9 @@ class MDP():
 
         # If V_next is passed, then it's for finite horizon
         V = np.zeros(self.S) if V_next is None else V_next
+
+        if max_iter is None:
+            max_iter = self.max_iter
 
         for _ in range(max_iter):
             V_prev = V.copy()
@@ -308,7 +303,7 @@ class MDP():
    
         return policy.astype(np.int32)
     
-    def policy_iteration(self, iterative = True, GS = True):
+    def policy_iteration(self, iterative = True, GS = True, max_iter=None):
         """
         Perform policy iteration. Returns value function, action-value function,
         and greedy policy. For finite-horizon, returns a list of V and policies
@@ -330,7 +325,7 @@ class MDP():
                 # Policy Evaluation <- for all timesteps first
                 for t in reversed(range(self.T)):
                     # Update V[t] from policy[t] and V[t+1]
-                    V[t] = self.policy_evaluation_iterative(policy[t], max_iter=1, GS=False, V_next=V[t+1].copy()) # only need 1 iteration
+                    V[t] = self.policy_evaluation_iterative(policy[t], GS=False, max_iter=1, V_next=V[t+1].copy()) # only need 1 iteration
 
                 # Policy Improvement <- from complete set of value functions
                 stable = True
@@ -348,7 +343,7 @@ class MDP():
             else:
                 # Policy evaluation
                 if iterative:
-                    V = self.policy_evaluation_iterative(policy, GS)
+                    V = self.policy_evaluation_iterative(policy, GS, max_iter)
                 else:
                     V, _ = self.eval(policy)
 

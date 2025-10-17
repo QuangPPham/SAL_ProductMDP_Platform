@@ -51,3 +51,27 @@ for i in range(mdp.T):
     print(f"At timestep {i}")
     print(f"Value: {V_PI[i]}")
     print(f"Policy: {policy_PI[i]}")
+
+print("============MDP Toolbox=============")
+import mdptoolbox
+fh = mdptoolbox.mdp.FiniteHorizon(P, R, 1.0, 2)
+fh.run()
+fhV = fh.V.T
+fhP = fh.policy.T
+for i in range(mdp.T):
+    print(f"At timestep {i}")
+    print(f"Value: {fhV[i]}")
+    print(f"Policy: {fhP[i]}")
+
+print("No horizon")
+mdp2 = MDP(transitions=P, rewards=R, discount=0.99)
+V, Q, policy = mdp2.value_iteration(GS=True)
+print(V)
+
+V_PI, policy_PI = mdp2.policy_iteration(iterative=True)
+print(V_PI)
+
+mdpy = mdptoolbox.mdp.ValueIterationGS(P, R, 0.99)
+mdpy.run()
+V_py = mdpy.V
+print(V_py)

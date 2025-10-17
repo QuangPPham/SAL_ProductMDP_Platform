@@ -182,12 +182,15 @@ class ProductMDP():
 
         return V_pi, Q_pi
 
-    def policy_evaluation_iterative(self, policy, max_iter = 1000, GS=True):
+    def policy_evaluation_iterative(self, policy, GS=True, max_iter = None):
         """
         Iteratively evaluate the value function for a given policy.
         policy: array of shape (SX,) for deterministic, or (SX, A) for stochastic
         Returns: V_pi (value function under policy)
         """
+
+        if max_iter is None:
+            max_iter = self.max_iter
 
         V = np.zeros(self.SX)
         for _ in range(max_iter):
@@ -227,12 +230,12 @@ class ProductMDP():
    
         return policy
     
-    def policy_iteration(self, iterative = True, GS = True):
+    def policy_iteration(self, iterative = True, GS = True, max_iter=None):
         V = np.zeros(self.SX)
-        policy = np.zeros_like(V)
+        policy = np.zeros_like(V, dtype=np.int32)
         for i in range(self.max_iter):
             if iterative:
-                V = self.policy_evaluation_iterative(policy)
+                V = self.policy_evaluation_iterative(policy, GS, max_iter)
             else:
                 V, _ = self.eval(policy)
             old_policy = policy.copy()
@@ -241,7 +244,7 @@ class ProductMDP():
             if np.array_equal(policy, old_policy):
                 break
         
-        return V, policy.astype(np.int32)
+        return V, policy
 
 
     def get_action(self, sx=None, s=None, q=None, policy=None):

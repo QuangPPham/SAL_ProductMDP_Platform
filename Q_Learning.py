@@ -28,11 +28,14 @@ class QLearning:
 
         self.truncated = False
 
-    def simulate(self):
+    def simulate(self, i):
         s = self.s
 
+        # Increase greedy probability with every iteration
+        epsilon = 1 - 1 / np.log(i+2)
+
         # epsilon-greedy action selection
-        if np.random.rand() < self.epsilon:
+        if np.random.rand() < epsilon:
             a = np.random.randint(0, self.A)
         else:
             a = np.argmax(self.Q[:, s])
@@ -44,26 +47,37 @@ class QLearning:
 
         return s, a, r, truncated
 
-    def step(self):
+    def step(self, i):
         # Restart "episode"
         if self.t == self.T or self.truncated:
             self.s = np.random.randint(self.S)
             self.t = 0
             self.truncated = False
-        new_s, a, r, self.truncated = self.simulate()
+        new_s, a, r, self.truncated = self.simulate(i)
         self.t += 1
         q_max = np.max(self.Q[:, new_s])
-        self.Q[a, self.s] += self.alpha * (r + self.gamma*q_max - self.Q[a, self.s])
+
+        alpha = 1 / np.sqrt(i+2)
+        self.Q[a, self.s] += alpha * (r + self.gamma*q_max - self.Q[a, self.s])
         self.s = new_s
     
     def update_value(self):
-        for s in range(self.S):
-            greedy_Q = np.max(self.Q[:, s])
-            self.policy[s] = np.argmax(self.Q[:, s])
-            self.V[s] = ((1-self.epsilon)*greedy_Q + (self.epsilon/self.A)*(np.sum(self.Q[:, s])))
+        self.policy = self.Q.argmax(axis=0)
+        self.V = self.Q.max(axis=0)
+
+        # for s in range(self.S):
+        #     greedy_Q = np.max(self.Q[:, s])
+        #     self.policy[s] = np.argmax(self.Q[:, s])
+        #     self.V[s] = ((1-self.epsilon)*greedy_Q + (self.epsilon/self.A)*(np.sum(self.Q[:, s])))
 
     def run(self):
         for i in range(self.iter):
-            self.step()
+            self.step(i)
         self.update_value()
         return self.V, self.policy
+    
+    """
+    TO-DO
+    Increase greedy probability with every iteration
+    Decrease learning rate with every iteration
+    """

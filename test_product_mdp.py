@@ -131,7 +131,11 @@ labels2 = [{'c': False} for s in range(grid_world.S)]
 labels2[C_idx]['c'] = True
 
 env1 = ProductMDP(dfa1, grid_world, labels=labels1, discount=0.99)
+states_idx_before_A = [env1.states.index((s, 0)) for s in range(grid_world.S)]
+states_idx_after_A = [env1.states.index((s, 1)) for s in range(grid_world.S)]
+
 env2 = ProductMDP(dfa2, grid_world, labels=labels2, discount=0.99)
+states_idx = [env2.states.index((s, 0)) for s in range(grid_world.S)]
 
 # print(env.final)
 # print(env.alphabet)
@@ -146,10 +150,7 @@ env2 = ProductMDP(dfa2, grid_world, labels=labels2, discount=0.99)
 Value Iteration
 """
 print("====================Value Iteration=====================")
-V1, Q1, policy1 = env1.value_iteration(GS=True)
-
-states_idx_before_A = [env1.states.index((s, 0)) for s in range(grid_world.S)]
-states_idx_after_A = [env1.states.index((s, 1)) for s in range(grid_world.S)]
+V1, Q1, policy1 = env1.value_iteration(GS=False)
 
 V_before_A = V1[states_idx_before_A].reshape((ROW, COL))
 V_after_A = V1[states_idx_after_A].reshape((ROW, COL))
@@ -167,61 +168,97 @@ print(policy_before_A)
 print("Policy after getting to A")
 print(policy_after_A)
 
-# V2, Q2, policy2 = env2.value_iteration()
-# states_idx = [env2.states.index((s, 0)) for s in range(grid_world.S)]
+V2, Q2, policy2 = env2.value_iteration()
 
-# V_states = V2[states_idx].reshape((ROW, COL))
-# policy_states = policy2[states_idx].reshape((ROW, COL))
+V_states = V2[states_idx].reshape((ROW, COL))
+policy_states = policy2[states_idx].reshape((ROW, COL))
 
-# print("Value function for getting to C")
-# print(V_states)
-# print("Policy for getting to C")
-# print(policy_states)
+print("Value function for getting to C")
+print(V_states)
+print("Policy for getting to C")
+print(policy_states)
+
+"""
+MDP Toolbox
+"""
+print("====================MDP ToolBox=====================")
+import mdptoolbox
+P = np.array(env1.P)
+R = np.array(env1.R).T
+# vi = mdptoolbox.mdp.QLearning(P, R.T, env1.gamma, n_iter=1000000)
+# vi = mdptoolbox.mdp.PolicyIteration(P, R, env1.gamma, eval_type=1) # eval_type=0 for analytical approach, =1 for iterative approach
+vi = mdptoolbox.mdp.ValueIterationGS(P, R, env1.gamma)
+vi.run()
+viV = np.array(vi.V)
+viV_before = viV[states_idx_before_A].reshape((ROW, COL))
+viV_after = viV[states_idx_after_A].reshape((ROW, COL))
+polV = np.array(vi.policy)
+polV_before = polV[states_idx_before_A].reshape((ROW, COL))
+polV_after = polV[states_idx_after_A].reshape((ROW, COL))
+
+print("Value function before getting to A")
+print(viV_before)
+print("Value function after getting to A")
+print(viV_after)
+
+print("Policy before getting to A")
+print(polV_before)
+print("Policy after getting to A")
+print(polV_after)
 
 """
 Policy Iteration
 """
-print("====================Policy Iteration=====================")
-V1_PI, policy1_PI = env1.policy_iteration(iterative=True, GS=True)
+# print("====================Policy Iteration=====================")
+# V1_PI, policy1_PI = env1.policy_iteration(iterative=True)
 
-V_PI_before_A = V1_PI[states_idx_before_A].reshape((ROW, COL))
-V_PI_after_A = V1_PI[states_idx_after_A].reshape((ROW, COL))
+# V_PI_before_A = V1_PI[states_idx_before_A].reshape((ROW, COL))
+# V_PI_after_A = V1_PI[states_idx_after_A].reshape((ROW, COL))
 
-print("Value function before getting to A")
-print(V_PI_before_A)
-print("Value function after getting to A")
-print(V_PI_after_A)
+# print("Value function before getting to A")
+# print(V_PI_before_A)
+# print("Value function after getting to A")
+# print(V_PI_after_A)
 
-policy_PI_before_A = policy1_PI[states_idx_before_A].reshape((ROW, COL))
-policy_PI_after_A = policy1_PI[states_idx_after_A].reshape((ROW, COL))
+# policy_PI_before_A = policy1_PI[states_idx_before_A].reshape((ROW, COL))
+# policy_PI_after_A = policy1_PI[states_idx_after_A].reshape((ROW, COL))
 
-print("Policy before getting to A")
-print(policy_PI_before_A)
-print("Policy after getting to A")
-print(policy_PI_after_A)
+# print("Policy before getting to A")
+# print(policy_PI_before_A)
+# print("Policy after getting to A")
+# print(policy_PI_after_A)
+
+# V2_PI, policy2_PI = env2.policy_iteration(iterative=True)
+# V_states_PI = V2_PI[states_idx].reshape((ROW, COL))
+# policy_states_PI = policy2_PI[states_idx].reshape((ROW, COL))
+
+# print("Value function for getting to C")
+# print(V_states_PI)
+# print("Policy for getting to C")
+# print(policy_states_PI)
 
 """
 Q-Learning
 """
-print("====================Q Learning=====================")
-ql1 = QLearning(env1, learning_rate=0.5, timesteps=20, exploration=0.05, iteration=5000000)
-V1_QL, policy1_QL = ql1.run()
+# print("====================Q Learning=====================")
+# ql1 = QLearning(env1, learning_rate=0.5, timesteps=100, exploration=0.05, iteration=1000000)
+# V1_QL, policy1_QL = ql1.run()
 
-V_QL_before_A = V1_QL[states_idx_before_A].reshape((ROW, COL))
-V_QL_after_A = V1_QL[states_idx_after_A].reshape((ROW, COL))
+# V_QL_before_A = V1_QL[states_idx_before_A].reshape((ROW, COL))
+# V_QL_after_A = V1_QL[states_idx_after_A].reshape((ROW, COL))
 
-print("Value function before getting to A")
-print(V_QL_before_A)
-print("Value function after getting to A")
-print(V_QL_after_A)
+# print("Value function before getting to A")
+# print(V_QL_before_A)
+# print("Value function after getting to A")
+# print(V_QL_after_A)
 
-policy_QL_before_A = policy1_QL[states_idx_before_A].reshape((ROW, COL))
-policy_QL_after_A = policy1_QL[states_idx_after_A].reshape((ROW, COL))
+# policy_QL_before_A = policy1_QL[states_idx_before_A].reshape((ROW, COL))
+# policy_QL_after_A = policy1_QL[states_idx_after_A].reshape((ROW, COL))
 
-print("Policy before getting to A")
-print(policy_QL_before_A)
-print("Policy after getting to A")
-print(policy_QL_after_A)
+# print("Policy before getting to A")
+# print(policy_QL_before_A)
+# print("Policy after getting to A")
+# print(policy_QL_after_A)
 
 # ql2 = QLearning(env2.sample, env2.SX, env2.A, env2.gamma, timesteps=100, exploration=0.1, iteration=100000)
 # V2_QL, policy2_QL = ql2.run()
