@@ -3,6 +3,7 @@ from mdp import MDP
 from dfa import DFA
 from product_mdp import ProductMDP
 from Q_Learning import QLearning
+np.set_printoptions(suppress=True)
 
 ROW = 4
 COL = 5
@@ -70,8 +71,6 @@ for row in range(ROW):
 # print(P.shape)
 # print(P[3].sum(axis=1))
 
-grid_world = MDP(transitions=P)
-
 mona_dfa_string1 = """
 digraph MONA_DFA {
 rankdir = LR;
@@ -123,19 +122,19 @@ dfa2 = DFA(mona_dfa_string2)
 # Labeling function: L(s) -> list of s dictionaries, where each is the "context" for the atomic proposition
 A_idx, B_idx, C_idx = idx(0, 1), idx(3, 1), idx(3, 3)
 
-labels1 = [{'a': False, 'b': False} for s in range(grid_world.S)]
+labels1 = [{'a': False, 'b': False} for s in range(S)]
 labels1[A_idx]['a'] = True
 labels1[B_idx]['b'] = True
 
-labels2 = [{'c': False} for s in range(grid_world.S)]
+labels2 = [{'c': False} for s in range(S)]
 labels2[C_idx]['c'] = True
 
-env1 = ProductMDP(dfa1, grid_world, labels=labels1, discount=0.99)
-states_idx_before_A = [env1.states.index((s, 0)) for s in range(grid_world.S)]
-states_idx_after_A = [env1.states.index((s, 1)) for s in range(grid_world.S)]
+env1 = ProductMDP(dfa1, labels=labels1, transitions=P, discount=0.99)
+states_idx_before_A = [env1.states.index((s, 0)) for s in range(S)]
+states_idx_after_A = [env1.states.index((s, 1)) for s in range(S)]
 
-env2 = ProductMDP(dfa2, grid_world, labels=labels2, discount=0.99)
-states_idx = [env2.states.index((s, 0)) for s in range(grid_world.S)]
+env2 = ProductMDP(dfa2, labels=labels2, transitions=P, discount=0.99)
+states_idx = [env2.states.index((s, 0)) for s in range(S)]
 
 # print(env.final)
 # print(env.alphabet)
@@ -146,65 +145,71 @@ states_idx = [env2.states.index((s, 0)) for s in range(grid_world.S)]
 # print(env.P[2].sum(axis=1))
 # print(env.acc)
 
+reachability = True
+
 """
 Value Iteration
 """
 print("====================Value Iteration=====================")
-V1, Q1, policy1 = env1.value_iteration(GS=False)
+# if reachability:
+#     V1, Q1, policy1 = env1.value_iteration_reachability()
+# else:
+#     V1, Q1, policy1 = env1.value_iteration()
 
-V_before_A = V1[states_idx_before_A].reshape((ROW, COL))
-V_after_A = V1[states_idx_after_A].reshape((ROW, COL))
+# V_before_A = V1[states_idx_before_A].reshape((ROW, COL))
+# V_after_A = V1[states_idx_after_A].reshape((ROW, COL))
 
-print("Value function before getting to A")
-print(V_before_A)
-print("Value function after getting to A")
-print(V_after_A)
+# print("Value function before getting to A")
+# print(V_before_A)
+# print("Value function after getting to A")
+# print(V_after_A)
 
-policy_before_A = policy1[states_idx_before_A].reshape((ROW, COL))
-policy_after_A = policy1[states_idx_after_A].reshape((ROW, COL))
+# policy_before_A = policy1[states_idx_before_A].reshape((ROW, COL))
+# policy_after_A = policy1[states_idx_after_A].reshape((ROW, COL))
 
-print("Policy before getting to A")
-print(policy_before_A)
-print("Policy after getting to A")
-print(policy_after_A)
+# print("Policy before getting to A")
+# print(policy_before_A)
+# print("Policy after getting to A")
+# print(policy_after_A)
 
-V2, Q2, policy2 = env2.value_iteration()
+# V2, Q2, policy2 = env2.value_iteration_reachability()
 
-V_states = V2[states_idx].reshape((ROW, COL))
-policy_states = policy2[states_idx].reshape((ROW, COL))
+# V_states = V2[states_idx].reshape((ROW, COL))
+# policy_states = policy2[states_idx].reshape((ROW, COL))
 
-print("Value function for getting to C")
-print(V_states)
-print("Policy for getting to C")
-print(policy_states)
+# print("Value function for getting to C")
+# print(V_states)
+# print("Policy for getting to C")
+# print(policy_states)
 
 """
 MDP Toolbox
 """
-print("====================MDP ToolBox=====================")
-import mdptoolbox
-P = np.array(env1.P)
-R = np.array(env1.R).T
-# vi = mdptoolbox.mdp.QLearning(P, R.T, env1.gamma, n_iter=1000000)
-# vi = mdptoolbox.mdp.PolicyIteration(P, R, env1.gamma, eval_type=1) # eval_type=0 for analytical approach, =1 for iterative approach
-vi = mdptoolbox.mdp.ValueIterationGS(P, R, env1.gamma)
-vi.run()
-viV = np.array(vi.V)
-viV_before = viV[states_idx_before_A].reshape((ROW, COL))
-viV_after = viV[states_idx_after_A].reshape((ROW, COL))
-polV = np.array(vi.policy)
-polV_before = polV[states_idx_before_A].reshape((ROW, COL))
-polV_after = polV[states_idx_after_A].reshape((ROW, COL))
+# print("====================MDP ToolBox=====================")
+# import mdptoolbox
+# P = np.array(env1.P)
+# R = np.array(env1.R).T
+# # vi = mdptoolbox.mdp.QLearning(P, R.T, env1.gamma, n_iter=1000000)
+# # vi = mdptoolbox.mdp.PolicyIteration(P, R, env1.gamma, eval_type=1) # eval_type=0 for analytical approach, =1 for iterative approach
+# # vi = mdptoolbox.mdp.ValueIterationGS(P, R, env1.gamma)
+# # vi = mdptoolbox.mdp._LP(P, R, env1.gamma)
+# vi.run()
+# viV = np.array(vi.V)
+# viV_before = viV[states_idx_before_A].reshape((ROW, COL))
+# viV_after = viV[states_idx_after_A].reshape((ROW, COL))
+# polV = np.array(vi.policy)
+# polV_before = polV[states_idx_before_A].reshape((ROW, COL))
+# polV_after = polV[states_idx_after_A].reshape((ROW, COL))
 
-print("Value function before getting to A")
-print(viV_before)
-print("Value function after getting to A")
-print(viV_after)
+# print("Value function before getting to A")
+# print(viV_before)
+# print("Value function after getting to A")
+# print(viV_after)
 
-print("Policy before getting to A")
-print(polV_before)
-print("Policy after getting to A")
-print(polV_after)
+# print("Policy before getting to A")
+# print(polV_before)
+# print("Policy after getting to A")
+# print(polV_after)
 
 """
 Policy Iteration
@@ -236,6 +241,41 @@ Policy Iteration
 # print(V_states_PI)
 # print("Policy for getting to C")
 # print(policy_states_PI)
+
+"""
+Linear Program
+"""
+# print("====================Linear Program=====================")
+# if reachability:
+#     V1_LP, policy1_LP = env1.linear_program_reachability()
+# else:
+#     V1_LP, policy1_LP = env1.linear_program()
+
+# V_before_A_LP = V1_LP[states_idx_before_A].reshape((ROW, COL))
+# V_after_A_LP = V1_LP[states_idx_after_A].reshape((ROW, COL))
+
+# print("Value function before getting to A")
+# print(V_before_A_LP)
+# print("Value function after getting to A")
+# print(V_after_A_LP)
+
+# policy_before_A = policy1_LP[states_idx_before_A].reshape((ROW, COL))
+# policy_after_A = policy1_LP[states_idx_after_A].reshape((ROW, COL))
+
+# print("Policy before getting to A")
+# print(policy_before_A)
+# print("Policy after getting to A")
+# print(policy_after_A)
+
+# V2, policy2 = env2.linear_program_reachability()
+
+# V_states = V2[states_idx].reshape((ROW, COL))
+# policy_states = policy2[states_idx].reshape((ROW, COL))
+
+# print("Value function for getting to C")
+# print(V_states)
+# print("Policy for getting to C")
+# print(policy_states)
 
 """
 Q-Learning

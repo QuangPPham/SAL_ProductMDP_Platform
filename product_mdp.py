@@ -1,44 +1,31 @@
 import numpy as np
+import cvxpy as cp
+from mdp import MDP
 
-"""
-Class for specifying a Product MDP.
-
-"""
-
-class ProductMDP():
-    def __init__(self, automaton, mdp, rewards=None, labels=None, discount=None, max_iter=None, epsilon=None):
+class ProductMDP(MDP):
+    def __init__(self, automaton, labels=None, transitions=None, sample_model=None, rewards=None, horizon=None, discount=1.0, epsilon=1e-6, max_iter=10000):
+        """
+        Class for specifying a Product MDP.
+        See MDP class for details on transitions and rewards
+        See DFA class for details on the automaton
+        The labels is a dictionary containing the state of each atomic proposition
+            e.g: {'a': True, 'b': False}.
+        """
+        
+        super().__init__(transitions, sample_model, rewards, horizon, discount, epsilon, max_iter)
         self.automaton = automaton
-        self.mdp = mdp
-        self.T = mdp.T
-
-        if discount is None:
-            self.gamma = mdp.gamma
-        else:
-            self.gamma = float(discount)
-            assert 0.0 < self.gamma <= 1.0, "Discount must be in (0, 1]"
-
-        if max_iter is None:
-            self.max_iter = mdp.max_iter
-        else:
-            self.max_iter = max_iter
-
-        if epsilon is None:
-            self.epsilon = mdp.epsilon
-        else:
-            self.epsilon = epsilon
 
         # Get atomic propositions and alphabet
         self.aps = automaton.aps
         self.alphabet = automaton.labels
 
         # Shapes
-        self.S = mdp.S
-        self.A = mdp.A
+        self.mdpS = self.S
         self.Q = automaton.shape[1]
-        self.SX = self.S * self.Q
+        self.S = self.mdpS * self.Q
 
         # states[i] -> tuple (s[floor(i/Q)], q[i % Q])
-        self.states = [(s, q) for s in range(self.S) for q in range(self.Q)]
+        self.states = [(s, q) for s in range(self.mdpS) for q in range(self.Q)]
                     
         # Labeling function
         if labels is not None:
@@ -50,201 +37,143 @@ class ProductMDP():
 
         for q in range(self.Q):
             if automaton.states[q] in automaton.acc:
-                self.acc += [(s,q) for s in range(self.S)]
+                self.acc += [(s,q) for s in range(self.mdpS)]
             elif automaton.states[q] in automaton.sink:
-                self.sink += [(s,q) for s in range(self.S)]
+                self.sink += [(s,q) for s in range(self.mdpS)]
 
         self.final = self.acc + self.sink
         
         # Dynamics
-        if mdp.P is not None:
-            self.P, self.R = self._computeTransition(mdp.P, self.labels)
+        if self.P is not None:
+            self.P, self.R = self._computeTransition(self.P, self.labels)
 
         # Default reward is 1 for (a, (s, q)) if (s', q') is accepting, and 0 otherwise
         if rewards is not None:
             self.R = rewards
 
     def _computeTransition(self, mdpP, labels):
-        P = tuple([np.zeros((self.SX, self.SX)) for a in range(self.A)])
-        R = tuple([np.zeros(self.SX) for a in range(self.A)])
+        P = tuple([np.zeros((self.S, self.S)) for a in range(self.A)])
+        R = tuple([np.zeros(self.S) for a in range(self.A)])
 
         for a in range(self.A):
-            for s in range(self.S):
-                for s_new in range(self.S):
+            for s in range(self.mdpS):
+                for s_new in range(self.mdpS):
                     for q in range(self.Q):
-                        for q_new in range(self.Q):
-                            state_idx = self.states.index((s, q))
+                        state_idx = self.states.index((s, q))
+
+                        # P(sx, a, sx') = P(s, a, s') if (s, q) not in final states and q' = delta(L(s))
+                        if ((s,q) not in self.final):
+                            q_new = self.automaton.step(q, labels[s])[0]
                             state_new_idx = self.states.index((s_new, q_new))
-
-                            # P(sx, a, sx') = P(s, a, s') if (s, q) not in final states and q' = delta(L(s))
-                            q_new_actual = self.automaton.step(q, labels[s])[0]
-                            if ((s,q) not in self.final) and (q_new == q_new_actual):
-                                P[a][state_idx, state_new_idx] = mdpP[a][s, s_new]
-
-                            # sx in final states -> do not go to new states
-                            elif ((s,q) in self.final):
-                                P[a][state_idx, state_idx] = 1
+                            P[a][state_idx, state_new_idx] = mdpP[a][s, s_new]
 
                             # Reward function r(sx, a): +1 for transition into accepting state, and 0 otherwise
                             if ((s,q) not in self.acc) and ((s_new, q_new) in self.acc) and (P[a][state_idx, state_new_idx] > 0):
                                 R[a][state_idx] = 1.0
+
+                        # q is accepting/sink -> do not go to new logic state
+                        elif ((s,q) in self.final):
+                            state_new_idx = self.states.index((s_new, q))
+                            P[a][state_idx, state_new_idx] = mdpP[a][s, s_new]
+
         return P, R
 
-    def Bellman_update(self, Vprev, GS=True):
+
+    def Bellman_update_reachability(self, Vprev):
         """
         One step of the value iteration update using either Jacobi or Gauss-Seidel method.
         Returns value and action-value functions, and improved epsilon-greedy policy
         """
 
         try:
-            assert Vprev.shape in ((self.SX,), (1, self.SX)), "V is not the right shape (Bellman operator)."
+            assert Vprev.shape in ((self.S,), (1, self.S)), "V is not the right shape (Bellman operator)."
         except AttributeError:
             raise TypeError("V must be a numpy array or matrix.")
 
-        Q = np.empty((self.A, self.SX))
+        Q = np.empty((self.A, self.S))
+        V = Vprev.copy()
 
-        if GS:
-            V = Vprev.copy()
-            policy = np.empty_like(Vprev)
-            for s in range(self.SX):
+        for s in range(self.S):
+            (mdp_s, q) = self.states[s]
+            if (mdp_s, q) in self.acc:
+                V[s] = 1.0
+            elif (mdp_s, q) in self.sink:
+                V[s] = 0.0
+            else:
                 for a in range(self.A):
-                    Q[a, s] = self.R[a][s] + self.gamma * self.P[a][s, :].dot(V)
+                    Q[a, s] = self.P[a][s, :].dot(V)
                 V[s] = Q[:,s].max()
-                policy[s] = Q[:, s].argmax()
-        else:
-            for a in range(self.A):
-                Q[a] = self.R[a] + self.gamma * self.P[a].dot(Vprev)
 
-            V = Q.max(axis=0)
-            policy = Q.argmax(axis=0)
-
-        return V, Q, policy.astype(np.int32)
+        return V, Q
     
-    def value_iteration(self, GS=True):
-        V = np.zeros(self.SX)
-        for i in range(self.max_iter):
-            Vprev = V.copy() # numpy array thing
-            V, Q, policy = self.Bellman_update(Vprev, GS)
-            delta = np.max(abs(V - Vprev))
 
-            if delta < self.epsilon:
-                break
-        
-        return V, Q, policy
-    
-    def computePR_policy(self, policy=None):
+    def value_iteration_reachability(self):
         """
-        Compute an (S,S) transition matrix and (S,) reward vector for the MDP,
-        assuming actions are selected according to the policy. Policy has shape (S,)
-        if deterministic, and (S,A) if stochastic.
+        Perform value iteration. Returns value function, action-value function,
+        and greedy policy. For finite-horizon, returns a list of V, Q, and policies
+        for each timestep, where V[t], Q[t], and policy[t] is for timestep t.
         """
-        if policy is None:
-            policy = self.policy
-        
-        P_pi = np.empty((self.SX, self.SX))
-        R_pi = np.empty(self.SX) # R(s') given s' from s,a
 
-        if policy.ndim == 1:
-            # policy is deterministic
-            for a in range(self.A):
-                inds = np.where(policy == a)
-                ind = inds[0]
-                if len(ind) > 0:
-                    P_pi[ind, :] = self.P[a][ind, :]
-                    R_pi[ind] = self.R[a][ind]
+        # --- For finite-horizon --- #
+        if self.T is not None:
+            V = [np.zeros(self.S) for t in range(self.T+1)]
+            Q = [np.empty((self.A, self.S)) for t in range(self.T)]
+            policy = [np.empty(self.S) for t in range(self.T)]
 
-        elif policy.ndim == 2:
-            # policy is stochastic
-            P = np.array(self.P)
-            for s_new in range(self.SX):
-                for s in range(self.SX):
-                    P_pi[s, s_new] = policy[s, :].dot(P[:, s, s_new])
-                    for a in range(self.A):
-                        R_pi[s_new] += policy[s, a]*self.P[a][s, s_new]*self.R[a][s]
+            for t in reversed(range(self.T)):
+                    V[t], Q[t] = self.Bellman_update_reachability(V[t+1].copy()) # update V[t] from V[t+1]
+
+        # --- For infinite-horizon --- #
         else:
-            raise ValueError("Policy must be 1D (deterministic) or 2D (stochastic)")
+            V = np.zeros(self.S)
+            for i in range(self.max_iter):
+                Vprev = V.copy() # numpy array thing
+                V, Q = self.Bellman_update_reachability(Vprev)
+                delta = np.max(abs(V - Vprev))
 
-        return P_pi, R_pi
-
-    def eval(self, policy):
-        """
-        Evaluate value function of a given policy
-        Using analytical approach
-        """
-
-        # V = PR + gPV  => (I-gP)V = PR  => V = inv(I-gP)*PR
-        P_pi, R_pi = self.computePR_policy(policy)
-        V_pi = np.linalg.solve((np.eye(self.SX) - self.gamma*P_pi), R_pi)
-
-        Q_pi = np.empty((self.A, self.SX))
-        for a in range(self.A):
-            Q_pi[a, :] = self.R[a][:] + self.gamma * self.P[a].dot(V_pi)
-
-        return V_pi, Q_pi
-
-    def policy_evaluation_iterative(self, policy, GS=True, max_iter = None):
-        """
-        Iteratively evaluate the value function for a given policy.
-        policy: array of shape (SX,) for deterministic, or (SX, A) for stochastic
-        Returns: V_pi (value function under policy)
-        """
-
-        if max_iter is None:
-            max_iter = self.max_iter
-
-        V = np.zeros(self.SX)
-        for _ in range(max_iter):
-            V_prev = V.copy()
-            if policy.ndim == 1:  # deterministic
-                for sx in range(self.SX):
-                    a = int(policy[sx])
-                    if GS:
-                        V[sx] = self.R[a][sx] + self.gamma * self.P[a][sx, :].dot(V)
-                    else:
-                        V[sx] = self.R[a][sx] + self.gamma * self.P[a][sx, :].dot(V_prev)
-            elif policy.ndim == 2:  # stochastic
-                for sx in range(self.SX):
-                    for a in range(self.A):
-                        if GS:
-                            V[sx] += policy[sx, a] * (self.R[a][sx] + self.gamma * self.P[a][sx, :].dot(V))
-                        else:
-                            V[sx] += policy[sx, a] * (self.R[a][sx] + self.gamma * self.P[a][sx, :].dot(V_prev))
-            else:
-                raise ValueError("Policy must be 1D (deterministic) or 2D (stochastic)")
+                if delta < self.epsilon:
+                    policy = self.extract_policy(V)
+                    break
             
-            if np.max(np.abs(V - V_prev)) < self.epsilon:
-                break
+        return V, Q, policy
 
-        return V
-    
-    def policy_improvement(self, V):
-        """
-        Given a value function V, improve the policy greedily.
-        Returns a deterministic policy as a (SX,) array.
-        """
 
-        q_values = np.empty((self.A, self.SX))
-        for a in range(self.A):
-            q_values[a] = self.R[a] + self.gamma * self.P[a].dot(V)
-        policy = q_values.argmax(axis=0)
-   
-        return policy
-    
-    def policy_iteration(self, iterative = True, GS = True, max_iter=None):
-        V = np.zeros(self.SX)
-        policy = np.zeros_like(V, dtype=np.int32)
-        for i in range(self.max_iter):
-            if iterative:
-                V = self.policy_evaluation_iterative(policy, GS, max_iter)
+    def linear_program_reachability(self):
+        """
+        Linear program to solve for the maximum reachability problem
+        """
+        # Decision variables - value function
+        V = cp.Variable(self.S)
+
+        # Minimize value function
+        objective = cp.Minimize(cp.sum(V))
+
+        # Bellman constraints
+        constraints = []
+        for s in range(self.S):
+            constraints.append(V[s] <= 1.0)
+            constraints.append(V[s] >= 0.0)
+            (mdp_s, q) = self.states[s]
+            if (mdp_s, q) in self.acc:
+                constraints.append(V[s] == 1.0)
+            elif (mdp_s, q) in self.sink:
+                constraints.append(V[s] == 0.0)
             else:
-                V, _ = self.eval(policy)
-            old_policy = policy.copy()
-            policy = self.policy_improvement(V)
+                for a in range(self.A):
+                    future_rew = self.P[a][s, :] @ V
+                    constraints.append(V[s] >= future_rew)
 
-            if np.array_equal(policy, old_policy):
-                break
-        
-        return V, policy
+        # Optimization problem
+        prob = cp.Problem(objective, constraints)
+
+        # Solve
+        prob.solve()
+        V_star = V.value
+
+        # Extract policy
+        policy = self.extract_policy(V_star)
+
+        return V_star, policy
 
 
     def get_action(self, sx=None, s=None, q=None, policy=None):
@@ -268,6 +197,7 @@ class ProductMDP():
             raise ValueError("Policy must be 1D (deterministic) or 2D (stochastic)")
         
         return a_new
+
 
     def rollout(self, sx=None, s=None, q=None, a=None, policy=None, depth=1):
         """
@@ -295,7 +225,7 @@ class ProductMDP():
                 a_new = self.get_action(sx=sx_new, policy=policy)
                 r_new = self.R[a_new][sx_new]
             else:
-                s_new, _ = self.mdp.sample_model(s_batch[i], a_batch[i])
+                s_new, _ = self.sample_model(s_batch[i], a_batch[i])
                 q_new = self.automaton.step(q_batch[i], self.labels[s_batch[i]])[0]
                 sx_new = self.states.index((s_new, q_new))
                 a_new = self.get_action(sx=sx_new, policy=policy)
@@ -309,6 +239,7 @@ class ProductMDP():
 
         return s_batch, q_batch, sx_batch, a_batch[:-1], r_batch[:-1]
     
+
     def sample(self, a, sx=None, s=None, q=None):
         # Sample next mdp state, dfa state, product state and reward
         if sx is None:

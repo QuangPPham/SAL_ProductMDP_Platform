@@ -56,6 +56,7 @@ Class for specifying a Markov Decision Process.
 
 """
 import numpy as np
+import cvxpy as cp
 
 def _computeDimensions(transition):
     A = len(transition)
@@ -132,13 +133,6 @@ class MDP():
             self.R = _computeRewards(transitions, rewards, self.S, self.A) # length-A tuple of length-S np vector -> containng R(s, a)
         else:
             self.R = None
-
-        # User-implemented
-        self.V = None            # (S,) vector containing V(s)
-        self.Q = None            # (A, S) matrix containing Q(s, a)
-        self.policy = np.random.randint(self.A, size=self.S)
-                                # (S,) vector containing deterministic action indices or
-                                # (S, A) array contraining probability of action a at state s
 
         self.T = horizon
 
@@ -235,6 +229,7 @@ class MDP():
 
         return P_pi, R_pi    
 
+
     def eval(self, policy=None):
         """
         Evaluate value function of a given policy
@@ -252,6 +247,7 @@ class MDP():
             Q_pi[a, :] = self.R[a][:] + self.gamma * self.P[a].dot(V_pi)
 
         return V_pi, Q_pi
+
 
     def policy_evaluation_iterative(self, policy, GS=True, max_iter = None, V_next=None):
         """
@@ -290,6 +286,7 @@ class MDP():
 
         return V
     
+
     def policy_improvement(self, V):
         """
         Given a value function V, improve the policy greedily.
@@ -303,6 +300,7 @@ class MDP():
    
         return policy.astype(np.int32)
     
+
     def policy_iteration(self, iterative = True, GS = True, max_iter=None):
         """
         Perform policy iteration. Returns value function, action-value function,
@@ -355,6 +353,47 @@ class MDP():
                     break
         
         return V, policy
+
+
+    def linear_program(self):
+        """
+        Linear program to solve for the optimal value function and policy
+        """
+        # Decision variables - value function
+        V = cp.Variable(self.S)
+
+        # Minimize value function
+        objective = cp.Minimize(cp.sum(V))
+
+        # Bellman constraints
+        constraints = []
+        for s in range(self.S):
+            for a in range(self.A):
+                future_rew = self.R[a][s] + self.gamma*(self.P[a][s, :] @ V)
+                constraints.append(V[s] >= future_rew)
+
+        # Optimization problem
+        prob = cp.Problem(objective, constraints)
+
+        # Solve
+        prob.solve()
+        V_star = V.value
+
+        # Extract policy
+        policy = self.extract_policy(V_star)
+
+        return V_star, policy
+
+    def extract_policy(self, V):
+        Q = np.empty((self.A, self.S))
+        policy = np.empty_like(V)
+        for s in range(self.S):
+            for a in range(self.A):
+                Q[a, s] = self.P[a][s, :].dot(V)
+            policy[s] = Q[:, s].argmax()
+        
+        return policy
+
 
     def get_action(self, s, policy=None):
         """
